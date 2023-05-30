@@ -3,26 +3,90 @@
 # Backup Manager Script
 
 show_help() {
-  echo "Usage: ./backup_manager.sh [options]"
+  echo "Backup Manager - Help"
+  echo "Usage: bm [options]"
   echo "Options:"
   echo "  --schedule|-s {crontab_format} {src_path} {des_path}  Setup a new backup"
+  echo "  --list                  Show list of configured backups"
   echo "  --older-than {time_period} --housekeeping {backup_id}  Delete backups older than given period"
-  echo "  --help|-h  Show help"
+  echo "  --help|-h               Show help"
 }
+
+backup_dir="/var/backups"
+
+
+
+function setup_backup() {
+  local crontab_format=$1
+  local src_path=$2
+  local des_path=$3
+
+  # Validate source and destination paths
+  if [ ! -d "$src_path" ]; then
+    echo "Error: Source path '$src_path' does not exist."
+    exit 1
+  fi
+
+  # Create backup directory if it doesn't exist
+  if [ ! -d "$backup_dir" ]; then
+    mkdir -p "$backup_dir"
+  fi
+
+  # Add cron job to schedule the backup
+  (crontab -l 2>/dev/null; echo "$crontab_format cp -r $src_path $backup_dir/$des_path") | crontab -
+
+  echo "Backup scheduled successfully!"
+}
+
+function list-backups(){
+  echo "List of configured backups:"
+  crontab -l | grep -v '^#' | grep -o 'cp -r .*' | awk '{print $3}' 
+}
+
+function delete_old_backups(){
+  local time_period = $1
+  local backup_id = $2
+  
+  local cutoff_date=$(date -d "$time_period ago" +"%Y-%m-%d")
+  find "$backup_dir" -maxdepth 1 -name  "$backup_id*" -type d -not -newermt "$cutoff_date" -exec rm -r {} \;
+
+  echo "Old backups deleted successfully!"
+}
+
+function delete_old_backups() {
+  local time_period=$1
+  local backup_id=$2
+
+  # Calculate the cutoff date
+  local cutoff_date=$(date -d "$time_period ago" +'%Y-%m-%d')
+
+  # Delete backups older than the cutoff date
+  find "$backup_dir" -maxdepth 1 -name "$backup_id*" -type d -not -newermt "$cutoff_date" -exec rm -r {} \;
+
+  echo "Old backups deleted successfully!"
+}
+
+    
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --schedule|-s)
       crontab_format="$2"
-      source_dir="$3"
-      destination_dir="$4"
-      shift 4
+      src_path="$3"
+      des_path="$4"
+      setup_backup "$crontab_format" "$src_path" "$des_path"
+      exit 0
+      ;;
+    --list)
+      list_backups
+      exit 0
       ;;
     --older-than)
       time_period="$2"
       backup_id="$4"
-      shift 4
+      delete_old_backups "$time_period" "$backup_id"
+      exit 0
       ;;
     --help|-h)
       show_help
@@ -36,61 +100,5 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Rest of the script...
-
-
-
-#!/bin/bash
-
-# Backup Manager Script
-
-# Parse command line arguments
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --schedule|-s)
-      crontab_format="$2"
-      shift 2
-      ;;
-    *)
-      echo "Invalid argument: $1"
-      exit 1
-      ;;
-  esac
-done
-
-# Validate and set up the backup schedule using crontab
-if [[ -n $crontab_format ]]; then
-  # Get the script's absolute path
-  script_path=$(readlink -f "$0")
-
-  # Generate the command to execute the script with the backup parameters
-  command_to_execute="/bin/bash $script_path --backup"
-
-  # Add the command to crontab
-  (crontab -l 2>/dev/null; echo "$crontab_format $command_to_execute") | crontab -
-  echo "Backup scheduled with crontab format: $crontab_format"
-  exit 0
-fi
-
-# Perform the backup operation
-if [[ $1 == "--backup" ]]; then
-  # Set the source and destination directories
-  source_dir="$2"
-  backup_dir="$3"
-
-  # Create a backup directory with current timestamp
-  timestamp=$(date +%Y-%m-%d_%H-%M-%S)
-  backup_path="${backup_dir}/backup_${timestamp}"
-  mkdir -p "$backup_path"
-
-  # Copy files from source to backup directory
-  cp -R "$source_dir" "$backup_path"
-
-  # Display success message
-  echo "Backup created successfully at: $backup_path"
-  exit 0
-fi
-
-echo "Invalid or missing options. Please use --schedule|-s to set up a backup schedule."
-exit 1
+show_help
 
